@@ -1,0 +1,53 @@
+ARG BASE=oraclelinux:9
+FROM $BASE AS minimal
+
+ARG PG_VERSION
+ARG PG_MAJOR
+
+ENV PATH=$PATH:/usr/pgsql-$PG_MAJOR/bin
+
+RUN dnf install -y https://download.postgresql.org/pub/repos/yum/reporpms/EL-9-x86_64/pgdg-redhat-repo-latest.noarch.rpm && \
+    dnf -qy module disable postgresql && \
+    dnf install -y --setopt=install_weak_deps=False \
+      ca-certificates \
+      postgresql${PG_MAJOR}-server-${PG_VERSION}* \
+      postgresql${PG_MAJOR}-contrib-${PG_VERSION}* \
+      cyrus-sasl-lib \
+      openldap && \
+    dnf clean all && \
+    rm -rf /var/cache/dnf
+
+RUN usermod -u 26 postgres
+USER 26
+
+
+FROM minimal AS standard
+ARG EXTENSIONS
+ARG STANDARD_ADDITIONAL_POSTGRES_PACKAGES
+USER root
+RUN dnf install -y --setopt=install_weak_deps=False \
+      glibc-langpack-en \
+      ${STANDARD_ADDITIONAL_POSTGRES_PACKAGES} \
+      ${EXTENSIONS} && \
+    dnf clean all && \    
+    rm -rf /var/cache/dnf
+
+USER 26
+
+FROM standard AS system
+ARG BARMAN_VERSION
+
+USER root
+RUN dnf install -y --setopt=install_weak_deps=False \
+      gcc \
+      python3-devel \
+      python3-pip \
+      python3-psycopg2 \
+      python3-setuptools && \
+    pip3 install --no-cache-dir barman[cloud,azure,snappy,google,zstandard,lz4]==${BARMAN_VERSION} && \
+    dnf remove -y gcc python3-devel && \
+    dnf autoremove -y && \
+    dnf clean all && \
+    rm -rf /var/cache/dnf
+
+USER 26
