@@ -41,7 +41,7 @@ barmanVersion = "3.16.2"
 
 // Extensions to be included in the `standard` image
 extensions = [
-  "pgaudit17",
+  "pgaudit*",
   "pgvector",
   "pg_failover_slots",
   "pg_hint_plan",
@@ -53,9 +53,7 @@ extensions = [
 target "default" {
   matrix = {
     tgt = [
-      "minimal",
-      "standard",
-      "system"
+      "standard"
     ]
     // Get the list of PostgreSQL versions, filtering preview versions if already stable
     pgVersion = getPgVersions(postgreSQLVersions, postgreSQLPreviewVersions)
@@ -164,7 +162,7 @@ function getStandardAdditionalPostgresPackagesPerMajorVersion {
     params = [ majorVersion ]
     // Add PostgreSQL jit package from version 18
     result = join(" ", [
-      majorVersion < 18 ? "" : format("postgresql-%s-jit", majorVersion)
+      majorVersion < 18 ? "" : format("postgresql%s-llvmjit", majorVersion)
     ])
 }
 
