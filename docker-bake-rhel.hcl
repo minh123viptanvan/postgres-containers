@@ -59,7 +59,7 @@ target "default" {
     pgVersion = getPgVersions(postgreSQLVersions, postgreSQLPreviewVersions)
     base = [
       // renovate: datasource=docker versioning=loose
-      "oraclelinux:10",
+      // "oraclelinux:10",
       "oraclelinux:9",
       "oraclelinux:8"
     ]

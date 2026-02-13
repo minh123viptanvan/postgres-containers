@@ -7,7 +7,7 @@ ARG PG_MAJOR
 ENV PATH=$PATH:/usr/pgsql-$PG_MAJOR/bin
 
 RUN dnf install -y https://download.postgresql.org/pub/repos/yum/reporpms/EL-$(grep ^VERSION_ID= /etc/os-release | cut -d'"' -f2 | cut -d'.' -f1)-x86_64/pgdg-redhat-repo-latest.noarch.rpm && \
-    dnf -qy module disable postgresql && \
+    dnf -qy module disable postgresql || true && \
     dnf install -y --setopt=install_weak_deps=False \
       ca-certificates \
       postgresql${PG_MAJOR}-server-${PG_VERSION}* \
