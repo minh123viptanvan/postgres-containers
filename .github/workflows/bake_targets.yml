@@ -39,7 +39,7 @@ jobs:
   testbuild:
     # Start by building images for testing. We want to run security checks before pushing those to production.
     name: PostgreSQL ${{ inputs.postgresql_version }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest-16-cores
     permissions:
       contents: read
       packages: write
@@ -50,12 +50,12 @@ jobs:
       images: ${{ steps.images.outputs.images }}
     steps:
       - name: Checkout Code
-        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       # bake-action/subaction/matrix doesn't support remote bake files.
       # As a workaround, we clone the repository to allow passing the path to a local file.
       - name: Checkout additional remote source
-        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         if: ${{ inputs.bake_remote_source != '' }}
         with:
           repository: ${{ inputs.bake_remote_source }}
@@ -77,7 +77,7 @@ jobs:
           echo "filtered_targets=$target" >> "$GITHUB_OUTPUT"
 
       - name: Log in to the GitHub Container registry
-        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -130,7 +130,7 @@ jobs:
 
   security:
     name: Security checks
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest-4-cores
     permissions:
       contents: read
       packages: read
@@ -142,9 +142,11 @@ jobs:
         image: ${{fromJson(needs.testbuild.outputs.images)}}
     steps:
       - name: Checkout Code
-        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Security checks
+        # NOTE: Do not modify this to point to the local action "./.github/actions/security-scans",
+        # as it will break workflows running bake_targets.yml (this workflow) from external repositories.
         uses: cloudnative-pg/postgres-containers/.github/actions/security-scans@main
         with:
           image: "${{ matrix.image }}"
@@ -169,6 +171,8 @@ jobs:
       id-token: write
     steps:
       - name: Copy to production
+        # NOTE: Do not modify this to point to the local action "./.github/actions/copy-images",
+        # as it will break workflows running bake_targets.yml (this workflow) from external repositories.
         uses: cloudnative-pg/postgres-containers/.github/actions/copy-images@main
         with:
           bake_build_metadata: "${{ needs.testbuild.outputs.metadata }}"
