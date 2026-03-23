@@ -45,6 +45,7 @@ extensions = [
   "pgvector",
   "pg_failover_slots",
   "pg_hint_plan",
+  "pg_partman",
   "pg_cron",
   "hypopg",
   "timescaledb"
