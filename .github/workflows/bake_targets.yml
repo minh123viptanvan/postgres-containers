@@ -39,7 +39,7 @@ jobs:
   testbuild:
     # Start by building images for testing. We want to run security checks before pushing those to production.
     name: PostgreSQL ${{ inputs.postgresql_version }}
-    runs-on: ubuntu-latest-16-cores
+    runs-on: ${{ github.repository_owner == 'cloudnative-pg' && 'ubuntu-latest-16-cores' || 'ubuntu-24.04' }}
     permissions:
       contents: read
       packages: write
@@ -64,20 +64,23 @@ jobs:
 
       - name: List targets
         id: targets
-        uses: docker/bake-action/subaction/matrix@5be5f02ff8819ecd3092ea6b2e6261c31774f2b4 # v6
+        uses: docker/bake-action/subaction/matrix@82490499d2e5613fcead7e128237ef0b0ea210f7 # v7
         with:
           target: ${{ inputs.target }}
           files: ${{ inputs.bake_files }}
 
       - name: Filter by versions
         id: extract_targets
+        env:
+          TARGETS_MATRIX: ${{ steps.targets.outputs.matrix }}
+          PG_VERSION: ${{ inputs.postgresql_version }}
         run: |
-          target=$(echo '${{ steps.targets.outputs.matrix }}' | jq -r '.[] | .[] | select(match("${{ inputs.postgresql_version }}"))' | xargs echo | sed 's/ /,/g')
-          echo "Targets for PostgreSQL ${{ inputs.postgresql_version }}: $target"
+          target=$(echo "${TARGETS_MATRIX}" | jq -r --arg v "${PG_VERSION}" '.[] | .[] | select(match($v))' | xargs echo | sed 's/ /,/g')
+          echo "Targets for PostgreSQL ${PG_VERSION}: $target"
           echo "filtered_targets=$target" >> "$GITHUB_OUTPUT"
 
       - name: Log in to the GitHub Container registry
-        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -86,7 +89,7 @@ jobs:
       # TODO: review this when GitHub has linux/arm64 runners available (Q1 2025?)
       #   https://github.com/github/roadmap/issues/970
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+        uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4
         with:
           platforms: 'arm64'
           # TODO: remove this line once https://github.com/tonistiigi/binfmt/issues/258
@@ -94,10 +97,10 @@ jobs:
           image: tonistiigi/binfmt:master
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
 
       - name: Build and push
-        uses: docker/bake-action@5be5f02ff8819ecd3092ea6b2e6261c31774f2b4 # v6
+        uses: docker/bake-action@82490499d2e5613fcead7e128237ef0b0ea210f7 # v7
         id: build
         env:
           BUILDX_METADATA_PROVENANCE: disabled
@@ -113,8 +116,10 @@ jobs:
       # Get a list of the images that were built and pushed. We only care about a single tag for each image.
       - name: Generated images
         id: images
+        env:
+          BUILD_METADATA: ${{ steps.build.outputs.metadata }}
         run: |
-          echo "images=$(echo '${{ steps.build.outputs.metadata }}' | jq -c '[ .[]."image.name" | sub(",.*";"") ]')" >>  "$GITHUB_OUTPUT"
+          echo "images=$(echo "${BUILD_METADATA}" | jq -c '[ .[]."image.name" | sub(",.*";"") ]')" >>  "$GITHUB_OUTPUT"
 
       # Even if we're testing we sign the images, so we can push them to production later if that's required
       - name: Install cosign
@@ -123,14 +128,16 @@ jobs:
         # and https://github.com/actions/starter-workflows/blob/main/ci/docker-publish.yml for more details on
         # how to use cosign.
       - name: Sign images
+        env:
+          BUILD_METADATA: ${{ steps.build.outputs.metadata }}
         run: |
-          echo '${{ steps.build.outputs.metadata }}' | \
+          echo "${BUILD_METADATA}" | \
             jq '.[] | (."image.name" | sub(",.*";"" )) + "@" + ."containerimage.digest"' | \
             xargs cosign sign --yes
 
   security:
     name: Security checks
-    runs-on: ubuntu-latest-4-cores
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       packages: read
