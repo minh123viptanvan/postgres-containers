@@ -48,6 +48,7 @@ extensions = [
   "pg_partman",
   "pg_cron",
   "hypopg",
+  "pg_repack",
   "timescaledb"
 ]
 
