@@ -1,4 +1,6 @@
 
+# disable ansible
+.ansible/
 # Binaries for programs and plugins
 *.exe
 *.exe~
