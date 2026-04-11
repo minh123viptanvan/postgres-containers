@@ -1,0 +1,38 @@
+stages:
+  - build
+
+variables:
+  DOCKER_HOST: tcp://docker:2375
+  DOCKER_TLS_CERTDIR: ""
+  DOCKER_BUILDKIT: "1"
+  BUILDX_NO_DEFAULT_ATTESTATIONS: "1"
+
+build_rhel_images:
+  stage: build
+  image: docker:29-dind
+  services:
+    - name: docker:29-dind
+      alias: docker
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "minh-dev"'
+      changes:
+        - docker-bake-rhel.hcl
+        - Dockerfile-rhel
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_SOURCE_BRANCH_NAME == "minh-dev"'
+      changes:
+        - docker-bake-rhel.hcl
+        - Dockerfile-rhel
+    - when: never
+  before_script:
+    - docker version
+    - docker buildx version
+    - echo "$DOCKERHUB_PASSWORD" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin docker.io
+    - docker buildx create --name gitlab-builder --driver docker-container --use
+    - docker buildx inspect --bootstrap
+  script:
+    - docker buildx bake -f docker-bake-rhel.hcl --push
+  after_script:
+    - docker buildx rm gitlab-builder || true
+  variables:
+    registry: docker.io/$DOCKERHUB_NAMESPACE
+    revision: $CI_COMMIT_SHA
