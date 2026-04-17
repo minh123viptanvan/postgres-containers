@@ -1,0 +1,174 @@
+ARG BASE=oraclelinux:9
+FROM ${BASE} AS pg-builder
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+ARG PG_VERSION=18.3
+# IMPORTANT: pass PG_MAJOR explicitly (Docker ARG doesn't support ${PG_VERSION%%.*} expansion)
+ARG PG_MAJOR=18
+ARG PGAUDIT_TAG=18.0
+ARG PGVECTOR_TAG=0.8.2
+ARG PG_FAILOVER_SLOTS_TAG=1.2.0
+ARG PG_HINT_PLAN_TAG=REL18_1_8_0
+ARG PG_PARTMAN_TAG=5.4.3
+ARG PG_CRON_TAG=1.6.7
+ARG HYPOPG_TAG=1.4.2
+ARG PG_REPACK_TAG=1.5.3
+ARG BARMAN_VERSION=3.17.0
+
+# Enable required Oracle Linux repos and install build dependencies
+RUN dnf install -y --setopt=install_weak_deps=False dnf-plugins-core && \
+    dnf config-manager --enable ol*_codeready_builder && \
+    dnf install -y --setopt=install_weak_deps=False oracle-epel-release-el* && \
+    dnf install -y --setopt=install_weak_deps=False \
+      ca-certificates \
+      gcc \
+      make \
+      bison \
+      flex \
+      perl \
+      python3 \
+      python3-devel \
+      openssl-devel \
+      libxml2-devel \
+      libxslt-devel \
+      openldap-devel \
+      cyrus-sasl-devel \
+      pam-devel \
+      libicu-devel \
+      tcl-devel \
+      systemd-devel \
+      libuuid-devel \
+      readline-devel \
+      libzstd-devel \
+      zlib-devel \
+      lz4-devel \
+      liburing-devel \
+      libcurl-devel \
+      curl \
+      tar \
+      bzip2 \
+      findutils \
+      binutils && \
+    dnf clean all && \
+    rm -rf /var/cache/dnf
+
+WORKDIR /build
+
+# Build PostgreSQL from source
+RUN curl -fsSL "https://ftp.postgresql.org/pub/source/v${PG_VERSION}/postgresql-${PG_VERSION}.tar.bz2" | tar xjf - && \
+    cd "postgresql-${PG_VERSION}" && \
+    ./configure \
+      --prefix="/usr/pgsql-${PG_MAJOR}" \
+      --with-openssl \
+      --with-pam \
+      --with-ldap \
+      --with-libxml \
+      --with-libxslt \
+      --with-icu \
+      --with-systemd \
+      --with-uuid=ossp \
+      --with-zstd \
+      --with-lz4 \
+      --with-libcurl \
+      --with-liburing \
+      --enable-thread-safety \
+      --with-perl \
+      --with-python \
+      --with-tcl \
+      CC=/usr/bin/gcc \
+      CFLAGS='-O3' && \
+    make -j"$(nproc)" install && \
+    cd contrib/ && \
+    make all install -j"$(nproc)" && \
+    cd / && \
+    rm -rf "/build/postgresql-${PG_VERSION}"
+
+FROM pg-builder AS minimal
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+ARG PG_MAJOR
+ENV PATH="$PATH:/usr/pgsql-${PG_MAJOR}/bin"
+ENV LD_LIBRARY_PATH="/usr/pgsql-${PG_MAJOR}/lib"
+
+RUN dnf install -y --setopt=install_weak_deps=False && \
+    dnf clean all && \
+    rm -rf /var/cache/dnf
+
+RUN groupadd -g 26 postgres && \
+    useradd -u 26 -g postgres -d /var/lib/pgsql -s /bin/bash postgres
+
+USER 26
+
+FROM minimal AS standard
+ARG STANDARD_ADDITIONAL_POSTGRES_PACKAGES
+ARG PG_MAJOR
+ARG PGAUDIT_TAG
+ARG PGVECTOR_TAG
+ARG PG_FAILOVER_SLOTS_TAG
+ARG PG_HINT_PLAN_TAG
+ARG PG_PARTMAN_TAG
+ARG PG_CRON_TAG
+ARG HYPOPG_TAG
+ARG PG_REPACK_TAG
+USER root
+RUN dnf install -y --setopt=install_weak_deps=False \
+      glibc-langpack-en \
+      gcc \
+      make \
+      openssl-devel \
+      flex \
+      readline-devel \
+      libzstd-devel \
+      zlib-devel \
+      lz4-devel \
+      zlib-devel \
+      curl \
+      tar \
+      ${STANDARD_ADDITIONAL_POSTGRES_PACKAGES} && \
+    mkdir -p /build/extensions && \
+    cd /build/extensions && \
+    set -eux; \
+    build_ext() { \
+      local url="$1" dir="$2"; \
+      curl -fsSL "$url" | tar xzf -; \
+      cd "$dir"; \
+      make USE_PGXS=1 PG_CONFIG="/usr/pgsql-${PG_MAJOR}/bin/pg_config" -j"$(nproc)"; \
+      make USE_PGXS=1 PG_CONFIG="/usr/pgsql-${PG_MAJOR}/bin/pg_config" install; \
+      cd /build/extensions; \
+      rm -rf "$dir"; \
+    }; \
+    build_ext "https://github.com/pgaudit/pgaudit/archive/refs/tags/${PGAUDIT_TAG}.tar.gz" "pgaudit-${PGAUDIT_TAG}"; \
+    build_ext "https://github.com/pgvector/pgvector/archive/refs/tags/v${PGVECTOR_TAG}.tar.gz" "pgvector-${PGVECTOR_TAG}"; \
+    build_ext "https://github.com/EnterpriseDB/pg_failover_slots/archive/refs/tags/v${PG_FAILOVER_SLOTS_TAG}.tar.gz" "pg_failover_slots-${PG_FAILOVER_SLOTS_TAG}"; \
+    build_ext "https://github.com/ossc-db/pg_hint_plan/archive/refs/tags/${PG_HINT_PLAN_TAG}.tar.gz" "pg_hint_plan-${PG_HINT_PLAN_TAG}"; \
+    build_ext "https://github.com/pgpartman/pg_partman/archive/refs/tags/v${PG_PARTMAN_TAG}.tar.gz" "pg_partman-${PG_PARTMAN_TAG}"; \
+    build_ext "https://github.com/citusdata/pg_cron/archive/refs/tags/v${PG_CRON_TAG}.tar.gz" "pg_cron-${PG_CRON_TAG}"; \
+    build_ext "https://github.com/HypoPG/hypopg/archive/refs/tags/${HYPOPG_TAG}.tar.gz" "hypopg-${HYPOPG_TAG}"; \
+    build_ext "https://github.com/reorg/pg_repack/archive/refs/tags/ver_${PG_REPACK_TAG}.tar.gz" "pg_repack-ver_${PG_REPACK_TAG}"; \
+    rm -rf /build/extensions && \
+    dnf remove -y gcc make && \
+    dnf autoremove -y && \
+    dnf clean all && \
+    rm -rf /var/cache/dnf
+
+USER 26
+
+FROM standard AS system
+ARG BARMAN_VERSION
+
+USER root
+RUN dnf install -y --setopt=install_weak_deps=False \
+      gcc \
+      python3-devel \
+      python3-pip \
+      python3-psycopg2 \
+      python3-setuptools && \
+    pip3 install --no-cache-dir "barman[cloud,azure,snappy,google,zstandard,lz4]==${BARMAN_VERSION}" && \
+    dnf remove -y gcc python3-devel && \
+    dnf autoremove -y && \
+    dnf clean all && \
+    rm -rf /var/cache/dnf
+
+USER 26
