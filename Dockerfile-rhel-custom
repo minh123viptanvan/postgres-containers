@@ -1,5 +1,5 @@
 ARG BASE=oraclelinux:9
-FROM ${BASE} AS pg-builder
+FROM ${BASE} AS minimal
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
@@ -18,7 +18,7 @@ ARG BARMAN_VERSION=3.17.0
 
 # Enable required Oracle Linux repos and install build dependencies
 RUN dnf install -y --setopt=install_weak_deps=False dnf-plugins-core && \
-    dnf config-manager --enable ol*_codeready_builder && \
+    dnf config-manager --enable ol9_codeready_builder && \
     dnf install -y --setopt=install_weak_deps=False oracle-epel-release-el* && \
     dnf install -y --setopt=install_weak_deps=False \
       ca-certificates \
@@ -38,7 +38,7 @@ RUN dnf install -y --setopt=install_weak_deps=False dnf-plugins-core && \
       libicu-devel \
       tcl-devel \
       systemd-devel \
-      libuuid-devel \
+      uuid-devel \
       readline-devel \
       libzstd-devel \
       zlib-devel \
@@ -84,16 +84,11 @@ RUN curl -fsSL "https://ftp.postgresql.org/pub/source/v${PG_VERSION}/postgresql-
     cd / && \
     rm -rf "/build/postgresql-${PG_VERSION}"
 
-FROM pg-builder AS minimal
-
-SHELL ["/bin/bash", "-o", "pipefail", "-c"]
-
 ARG PG_MAJOR
 ENV PATH="$PATH:/usr/pgsql-${PG_MAJOR}/bin"
 ENV LD_LIBRARY_PATH="/usr/pgsql-${PG_MAJOR}/lib"
 
-RUN dnf install -y --setopt=install_weak_deps=False && \
-    dnf clean all && \
+RUN dnf clean all && \
     rm -rf /var/cache/dnf
 
 RUN groupadd -g 26 postgres && \
@@ -103,15 +98,6 @@ USER 26
 
 FROM minimal AS standard
 ARG STANDARD_ADDITIONAL_POSTGRES_PACKAGES
-ARG PG_MAJOR
-ARG PGAUDIT_TAG
-ARG PGVECTOR_TAG
-ARG PG_FAILOVER_SLOTS_TAG
-ARG PG_HINT_PLAN_TAG
-ARG PG_PARTMAN_TAG
-ARG PG_CRON_TAG
-ARG HYPOPG_TAG
-ARG PG_REPACK_TAG
 USER root
 RUN dnf install -y --setopt=install_weak_deps=False \
       glibc-langpack-en \
@@ -121,10 +107,6 @@ RUN dnf install -y --setopt=install_weak_deps=False \
       flex \
       readline-devel \
       libzstd-devel \
-      zlib-devel \
-      lz4-devel \
-      zlib-devel \
-      curl \
       tar \
       ${STANDARD_ADDITIONAL_POSTGRES_PACKAGES} && \
     mkdir -p /build/extensions && \
